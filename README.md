@@ -75,6 +75,7 @@ int main()
 	client.connect();
 
 	Socket::send(client.fd(), buff);
+	Socket::recv(client.fd(), buff);
 
 	return 0;
 }
