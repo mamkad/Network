@@ -64,7 +64,7 @@ using namespace Network;
 
 int main()
 {
-	Socket client("127.0.0.1", 6666, Network::CLIENT);
+	Socket client("127.0.0.1", 6666, CLIENT);
 
 	buff_t buff;
 
