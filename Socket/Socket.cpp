@@ -189,6 +189,11 @@ namespace Network
     {
         check("accept()", "SERVER", SERVER);
 
+        if ( (!isBindCalled_) || (!isListenCalled_) )
+        {
+            throw logic_error("До вызова accept() должны быть вызваны bind() и listen(int)");
+        }
+
         int clientFd;
         socklen_t addressSize = sizeof(address_);
 
