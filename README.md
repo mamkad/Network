@@ -2,7 +2,7 @@
 
 ## Сокет
 
-Класс-обёртка над сокетом. Реализация: [ссылка](https://github.com/mamkad/Network/blob/main/Socket)
+Класс-обёртка над сокетом. Реализация: [сокет](https://github.com/mamkad/Network/blob/main/Socket)
 
 Пример использования:
 
