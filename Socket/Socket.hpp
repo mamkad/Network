@@ -39,6 +39,11 @@ namespace Network
         sockaddr_in   address_;        // структура адреса
         socket_mode_t socket_mode_;    // режим работы сокета
         socket_type_t socket_type_;    // тип сокета
+
+        // флаги для контроля корректного порядка вызовов bind, listen, accept (для серверов)
+    private:
+        bool isBindCalled_;   // Была ли вызвана bind
+        bool isListenCalled_; // Была ли вызвана listen
         
         // служебные функции. Внутренний интерфейс
     private:

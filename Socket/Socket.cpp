@@ -10,9 +10,6 @@ using std::logic_error;
 using std::invalid_argument;
 using std::string;
 
-#include <iostream>
-using std::cout;
-
 namespace Network
 {
     // обнуление параметров
@@ -21,14 +18,20 @@ namespace Network
         fd_ = -1;
         memset(&address_, '\0', sizeof(address_));
         socket_mode_ = NOTASSIGN;
+        //memset(&socket_type_, '\0', sizeof(socket_type_));
+        isBindCalled_   = false;
+        isListenCalled_ = false;
     }  
 
     // обменять данные с другим сокетом
     void Socket::swap(Socket& otherSocket)
     {
-        std::swap(fd_,          otherSocket.fd_);
-        std::swap(address_,     otherSocket.address_);
-        std::swap(socket_mode_, otherSocket.socket_mode_);
+        std::swap(fd_,             otherSocket.fd_);
+        std::swap(address_,        otherSocket.address_);
+        std::swap(socket_mode_,    otherSocket.socket_mode_);
+        std::swap(socket_type_,    otherSocket.socket_type_);
+        std::swap(isBindCalled_,   otherSocket.isBindCalled_);
+        std::swap(isListenCalled_, otherSocket.isListenCalled_);
     }                    
 
     // функция с проверкой однотипных условий
@@ -36,7 +39,7 @@ namespace Network
     {
         if (!active())
         {
-            throw logic_error("Нельзя использовать функцию" + string(funcName) + ", пока не открыт сокет");
+            throw logic_error("Нельзя использовать функцию " + string(funcName) + ", пока не открыт сокет");
         }
 
         if (socket_mode_ != needMode)
@@ -75,19 +78,16 @@ namespace Network
         reset();
         setType({.domain = AF_INET, .type = SOCK_STREAM, .protocol = 0});
         create(ip, port, mode);
-        cout << "Socket()\n";
     }
 
     Socket::Socket(Socket&& otherSocket) 
     {
-        cout << "Socket(Socket&& otherSocket)\n";
         reset();
         swap(otherSocket);
     }
   
     Socket::~Socket()                 
     {
-        cout << "~Socket()\n";
         close();
     }
     //---------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -141,7 +141,6 @@ namespace Network
         }
 
         reset();
-        cout << "\tclose()\n";
     }
 
     // cвязывание адреса с локальным адресом протокола (для серверов)
@@ -149,21 +148,40 @@ namespace Network
     {
         check("bind()", "SERVER", SERVER);
 
+        if (isBindCalled_)
+        {
+            throw logic_error("Функция bind() уже была вызвана, для связывания нового адреса закройте сокет");
+        }
+
         if ( ::bind(fd_, (struct sockaddr*)&address_, sizeof(address_)) < 0 )
         {
             throw logic_error("Не удалось связать адрес с локальным адресом протокола: "+ string(strerror(errno)));
         }
+
+        isBindCalled_ = true;
     }
 
     // перевод сокета в состояние LISTEN (для серверов)
     void Socket::listen(int backlog)                 
     {
-        check("listen()", "SERVER", SERVER);
+        check("listen(int)", "SERVER", SERVER);
+
+        if (!isBindCalled_)
+        {
+            throw logic_error("До вызова функции listen(int) должна быть вызвана функция bind(), чтобы связать адрес с локальным адресом протокола");
+        }
+
+        if (isListenCalled_)
+        {
+            throw logic_error("Функция listen() уже была вызвана, для связывания нового адреса и перевода сокета в состояние LISTEN закройте сокет");
+        }
 
         if ( ::listen(fd_, backlog) < 0 )
         {
             throw logic_error("Не удалось перевести сокет в состояние LISTEN: " + string(strerror(errno)));
         }
+
+        isListenCalled_  = true;
     }
 
     // принятие входящих подключений (для серверов)
@@ -180,7 +198,7 @@ namespace Network
         }
 
         return clientFd;
-    }	
+    }   
 
     // подключение
     void Socket::connect() 
