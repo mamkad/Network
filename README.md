@@ -21,7 +21,7 @@ using namespace Network;
 
 int main()
 {
-	Socket server.create( {
+	Socket server( {
 			.domain_ = AF_INET, 
 			.type_ = SOCK_STREAM, 
 			.protocol_ = 0,
@@ -74,11 +74,11 @@ int main()
 	try 
 	{
 		Socket client( {
-		.domain_ = AF_INET, 
-		.type_ = SOCK_STREAM, 
-		.protocol_ = 0,
-		.socketMode_ = CLIENT }, 
-		 {} );
+			.domain_ = AF_INET, 
+			.type_ = SOCK_STREAM, 
+			.protocol_ = 0,
+			.socketMode_ = CLIENT }, 
+			 {} );
 
 		Buff buff;
 
