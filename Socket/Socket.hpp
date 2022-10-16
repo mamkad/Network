@@ -1,93 +1,62 @@
+/*
+    Класс-обёртка над сокетом. 
+    2022-10-08
+*/
 #pragma once
 
-#include <unistd.h>
-#include <arpa/inet.h>
+#include "Address.hpp"
+
 #include <array>
-#include <string>
+#include <utility>
 
 using std::array;
-using std::string;
+using std::pair;
 
 namespace Network
 {
-    // тип сокета
-    struct socket_type_t
-    {
-        int domain;
-        int type;
-        int protocol;
-    };
-
-    // режимы работы сокета
-    enum socket_mode_t {SERVER = 0, CLIENT = 1, NOTASSIGN = 2}; 
-
     // макс длина буфера
-    enum {MSGSIZE = 256};                                       
+    enum { BUFFSIZE = 256 }; 
+                
+    // тип буфера                                    
+    using Buff = array<char, BUFFSIZE>; 
 
-    using buff_t = array<char, MSGSIZE>; // тип буфера
-
-    /*
-        Класс-обёртка над сокетом. 
-        2022-10-08
-     */
-
+    // сокет
     class Socket final
     {
-        // данные класса
     private:  
-        int           fd_;             // дескриптор
-        sockaddr_in   address_;        // структура адреса
-        socket_mode_t socket_mode_;    // режим работы сокета
-        socket_type_t socket_type_;    // тип сокета
+        int         fd_;         // дескриптор
+        SocketType  socketType_; // тип сокета
+        int         backlog_;    // max длина очереди на подключение
 
-        // флаги для контроля корректного порядка вызовов bind, listen, accept (для серверов)
     private:
-        bool isBindCalled_;   // Была ли вызвана bind
-        bool isListenCalled_; // Была ли вызвана listen
-        
-        // служебные функции. Внутренний интерфейс
-    private:
-        void        reset      ();                                        // обнуление параметров
-        void        swap       (Socket& otherSocket);                     // обменять данные с другим сокетом
-        void        check      (char const*, char const*, socket_mode_t); // функция с проверкой однотипных условий
-        static bool checkIp    (string const&);                           // проверить корректность ip-адреса
-        void        addressInit(string const&, in_port_t);                // инициализация структуры адреса 
+        void reset( ); // обнуление параметров
+       
+    public:
+        Socket( );
+        Socket( SocketType const&, Address const& ); 
+        Socket( Socket const& ) = delete;                
+        Socket( Socket&& );                                                                   
+        Socket& operator= ( Socket const& ) = delete; 
+        Socket& operator= ( Socket&& )      = delete;
+        ~Socket( ); 
 
     public:
-        Socket();
-        Socket(string const&, in_port_t, socket_mode_t); // конструктор, принимает ip, порт и размер сообщения
-        Socket(Socket const&) = delete;                  // запрещаем копировать
-        Socket(Socket&&);                               
-        ~Socket();                                     
+        void create( SocketType const&, Address const& ); // создание сокета (создание fd и инициализация структуры sockaddr_in)
+        void close( ); // закрыть сокет
 
-        // запрещаем присваивать
+        pair<int, Address> accept( ); // принятие входящих подключений (для серверов)
+        void connect( Address const& );   // подключение (для клиентов)
+
     public:
-        Socket& operator= (Socket const&) = delete; 
-        Socket& operator= (Socket&&)      = delete;
-
-        // основной интерфейс
-    public:
-        void setType(socket_type_t const&);                   // задать тип сокета
-        void create(string const&, in_port_t, socket_mode_t); // инициализации класса сокета (создание fd и инициализация структуры sockaddr_in)
-        void close();                                         // закрыть сокет
-
-        void bind();      // cвязывание адреса с локальным адресом протокола (для серверов)
-        void listen(int); // перевод сокета в состояние LISTEN               (для серверов)
-        int  accept();    // принятие входящих подключений                   (для серверов)
-        void connect();   // подключение
-
-        // seter-ы
-    public:
-        int                  fd()      const noexcept; // получить дескриптор
-        sockaddr_in const&   address() const noexcept; // получить структуру адреса
-        socket_mode_t        mode()    const noexcept; // получить режим работы сокета
-        socket_type_t const& type()    const noexcept; // получить тип сокета
+        int fd( )                 const noexcept; // получить файловый дескриптор
+        SocketMode mode( )        const noexcept; // получить текущий режим работы сокета
+        SocketType const& type( ) const noexcept; // получить текущий тип сокета
 
     public:     
-        bool active() const noexcept; // активен ли сокет
+        bool isActive( ) const noexcept; // открыт ли текущий сокет
 
     public:
-        static ssize_t recv(int, buff_t&);       // получить сообщение 
-        static ssize_t send(int, buff_t const&); // послать сообщение
+        static ssize_t receive( int, Buff& );    // получить данные по fd 
+        static ssize_t send( int, Buff const& ); // послать  данные по fd 
     };
 }

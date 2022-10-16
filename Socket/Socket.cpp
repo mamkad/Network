@@ -3,12 +3,14 @@
 #include <cstring>
 #include <exception>
 #include <string>
-#include <utility>
 
 using std::exception;
 using std::logic_error;
 using std::invalid_argument;
-using std::string;
+using std::swap;
+
+#include <iostream>
+using std::cout;
 
 namespace Network
 {
@@ -16,256 +18,191 @@ namespace Network
     void Socket::reset()
     {
         fd_ = -1;
-        memset(&address_, '\0', sizeof(address_));
-        socket_mode_ = NOTASSIGN;
-        //memset(&socket_type_, '\0', sizeof(socket_type_));
-        isBindCalled_   = false;
-        isListenCalled_ = false;
-    }  
-
-    // обменять данные с другим сокетом
-    void Socket::swap(Socket& otherSocket)
-    {
-        std::swap(fd_,             otherSocket.fd_);
-        std::swap(address_,        otherSocket.address_);
-        std::swap(socket_mode_,    otherSocket.socket_mode_);
-        std::swap(socket_type_,    otherSocket.socket_type_);
-        std::swap(isBindCalled_,   otherSocket.isBindCalled_);
-        std::swap(isListenCalled_, otherSocket.isListenCalled_);
-    }                    
-
-    // функция с проверкой однотипных условий
-    void Socket::check(char const* funcName, char const* mode, socket_mode_t needMode)
-    {
-        if (!active())
-        {
-            throw logic_error("Нельзя использовать функцию " + string(funcName) + ", пока не открыт сокет");
-        }
-
-        if (socket_mode_ != needMode)
-        {
-            throw logic_error("Функция " + string(funcName) + " должна использоваться только для сокета в режиме: " + string(mode));
-        }
-    }
-
-    // проверить корректность ip-адреса
-    bool Socket::checkIp(string const& ip)
-    {
-        if (ip.empty())
-        {
-            return false;
-        }
-
-        return true;
-    }
-
-    // инициализация структуры адреса
-    void Socket::addressInit(string const& ip, in_port_t port)
-    {
-        address_.sin_family = socket_type_.domain;
-        address_.sin_port = htons(port);
-        address_.sin_addr.s_addr = inet_addr(ip.data());
-    }                                   
+        socketType_ = { .domain_ = -1, .type_ = -1, .protocol_ = -1, .socketMode_ = NOTASSIGN };
+        backlog_ = 0;
+    }                           
     //---------------------------------------------------------------------------------------------------------------------------------------------------------------
     Socket::Socket()
     {
-        reset();
-        setType({.domain = AF_INET, .type = SOCK_STREAM, .protocol = 0});
+        reset( );
     }
 
-    Socket::Socket(string const& ip, in_port_t port, socket_mode_t mode)
+    Socket::Socket( SocketType const& socketType, Address const& address )
     {
-        reset();
-        setType({.domain = AF_INET, .type = SOCK_STREAM, .protocol = 0});
-        create(ip, port, mode);
+        reset( );
+        create( socketType, address );
     }
 
-    Socket::Socket(Socket&& otherSocket) 
+    Socket::Socket( Socket&& otherSocket ) 
     {
-        reset();
-        swap(otherSocket);
+        reset( );
+
+        swap( fd_,         otherSocket.fd_ );
+        swap( socketType_, otherSocket.socketType_ );
+        swap( backlog_,    otherSocket.backlog_ );
     }
   
     Socket::~Socket()                 
     {
-        close();
+        close( );
     }
     //---------------------------------------------------------------------------------------------------------------------------------------------------------------
-     // задать тип сокета
-    void Socket::setType(socket_type_t const& socket_type)
+    // создать сокет
+    void Socket::create( SocketType const& socketType, Address const& address ) 
     {
-        if(active())
+        // для создание нового сокета предыдущий должен быть закрыт
+        if( isActive( ) )
         {
-            throw logic_error("Нельзя задать новый тип сокета, пока не закрыт текущий сокет");
+            throw logic_error( "Нельзя создать новый сокет, пока не закрыт текущий" );
         }
 
-        socket_type_ = socket_type;
-    }              
+         // сохраняем информацию о типе сокета
+        socketType_ = socketType;
 
-
-    // инициализации класса сокета (создание fd и инициализация структуры sockaddr_in)
-    void Socket::create(string const& ip, in_port_t port, socket_mode_t mode)
-    {   
-        if(active())
+        if ( socketType_.socketMode_ == SERVER && address.isEmpty( ) )
         {
-            throw logic_error("Нельзя создать новый сокет, пока не закрыт текущий");
+            throw logic_error( "При создании сокета в режиме SERVER адрес должен быть указан явно" );
         }
 
-        if (!checkIp(ip))
+        // создание сокета
+        if ( ( fd_ = ::socket( socketType_.domain_, socketType_.type_, socketType_.protocol_ ) ) < 0 )
         {
-            throw logic_error("Некорректно задан ip адрес: " + ip);
+            throw logic_error( "Не удалось создать сокет: " + string( strerror( errno ) ) );
         }
 
-        if ( (fd_ = ::socket(socket_type_.domain, socket_type_.type, socket_type_.protocol)) < 0 )
+        // проверяем режим сокета
+        if ( socketType_.socketMode_ == SERVER )
         {
-            throw logic_error("Не удалось создать сокет: " + string(strerror(errno)));
-        }
+            // привязка сокета к локальному адресу протокола
+            socklen_t serverAddressSize = sizeof( address.address( ) );
 
-        addressInit(ip, port);
-        
-        socket_mode_ = mode;
-    }    
+            if ( ::bind( fd_, address.sAddress( ), serverAddressSize ) < 0 )
+            {
+                close( );
+                throw logic_error( "Не удалось связать адрес с локальным адресом протокола: "+ string( strerror( errno ) ) );
+            }
+
+            // перевод сокета в режим ожидания запросов (состояние LISTEN (для серверов))
+            if ( ::listen( fd_, backlog_ ) < 0 )
+            {
+                close( );
+                throw logic_error( "Не удалось перевести сокет в состояние LISTEN: " + string( strerror( errno ) ) );
+            }
+        }
+        else if ( socketType_.socketMode_ != CLIENT )
+        {
+            close( );
+            throw logic_error( "При создании сокета нужно явно указывать его тип: либо CLIENT либо SERVER" );
+        }
+    }            
 
     // закрыть сокет
-    void Socket::close()
+    void Socket::close( )
     {
-        if (!active())
+        if ( !isActive( ) )
         {
             return;
         }
 
-        if ( ::close(fd_) < 0 )
+        if ( ::close( fd_ ) < 0 )
         {
-            reset();
-            throw logic_error("Ошибка при закрытии сокета: "+ string(strerror(errno)));
+            reset( );
+            throw logic_error( "Ошибка при закрытии сокета: "+ string( strerror( errno ) ) );
         }
 
-        reset();
-    }
-
-    // cвязывание адреса с локальным адресом протокола (для серверов)
-    void Socket::bind()    
-    {
-        check("bind()", "SERVER", SERVER);
-
-        if (isBindCalled_)
-        {
-            throw logic_error("Функция bind() уже была вызвана, для связывания нового адреса закройте сокет");
-        }
-
-        if ( ::bind(fd_, (struct sockaddr*)&address_, sizeof(address_)) < 0 )
-        {
-            throw logic_error("Не удалось связать адрес с локальным адресом протокола: "+ string(strerror(errno)));
-        }
-
-        isBindCalled_ = true;
-    }
-
-    // перевод сокета в состояние LISTEN (для серверов)
-    void Socket::listen(int backlog)                 
-    {
-        check("listen(int)", "SERVER", SERVER);
-
-        if (!isBindCalled_)
-        {
-            throw logic_error("До вызова функции listen(int) должна быть вызвана функция bind(), чтобы связать адрес с локальным адресом протокола");
-        }
-
-        if (isListenCalled_)
-        {
-            throw logic_error("Функция listen() уже была вызвана, для связывания нового адреса и перевода сокета в состояние LISTEN закройте сокет");
-        }
-
-        if ( ::listen(fd_, backlog) < 0 )
-        {
-            throw logic_error("Не удалось перевести сокет в состояние LISTEN: " + string(strerror(errno)));
-        }
-
-        isListenCalled_  = true;
+        reset( );
     }
 
     // принятие входящих подключений (для серверов)
-    int Socket::accept()  
+    pair<int, Address> Socket::accept()  
     {
-        check("accept()", "SERVER", SERVER);
-
-        if ( (!isBindCalled_) || (!isListenCalled_) )
+        if ( !isActive( ) )
         {
-            throw logic_error("До вызова accept() должны быть вызваны bind() и listen(int)");
+            throw logic_error( "Сокет не открыт" );
         }
 
-        int clientFd;
-        socklen_t addressSize = sizeof(address_);
+        if ( socketType_.socketMode_ != SERVER )
+        {
+            throw logic_error( "Функция должна вызываться только для сокета в режиме: SERVER" );
+        }
 
-        if ( (clientFd = ::accept(fd_, (struct sockaddr*)&address_, &addressSize)) < 0 )
+        int       clientFd;
+        Address   clientAddress;
+        socklen_t clientAddressSize = sizeof( clientAddress.address( ) );
+       
+        if ( ( clientFd = ::accept( fd_, clientAddress.sAddress( ), &clientAddressSize ) ) < 0 )
         {
             throw logic_error("Не удалось получить fd следующего установленного соединения: " + string(strerror(errno)));
         }
 
-        return clientFd;
+        return { clientFd, clientAddress };
     }   
 
     // подключение
-    void Socket::connect() 
+    void Socket::connect( Address const& address ) 
     {
-        check("connect()", "CLIENT", CLIENT);
-
-        if ( ::connect(fd_, (struct sockaddr*)&address_, sizeof(address_)) < 0 )
+        if ( !isActive() )
         {
-            throw logic_error("Не удалось установить соединение : " + string(strerror(errno)));
+            return;
+        }
+
+        if ( socketType_.socketMode_ != CLIENT )
+        {
+            throw logic_error( "Функция должна вызываться только для сокета в режиме: SERVER" );
+        }
+
+        socklen_t serverAddressSize = sizeof( address.address( ) );
+
+        if ( ::connect( fd_, address.sAddress( ), serverAddressSize ) < 0 )
+        {
+            throw logic_error( "Не удалось установить соединение : " + string( strerror( errno ) ) );
         }
     }
     //---------------------------------------------------------------------------------------------------------------------------------------------------------------
     // получить дескриптор
-    int Socket::fd() const noexcept
+    int Socket::fd( ) const noexcept
     {
         return fd_;
     }
 
-    // получить структуру адреса
-    sockaddr_in const& Socket::address() const noexcept 
-    {
-        return address_;
-    }
-
     // получить режим работы сокета
-    socket_mode_t Socket::mode() const noexcept
+    SocketMode Socket::mode( ) const noexcept
     {
-        return socket_mode_;
+        return socketType_.socketMode_;
     }
 
-    socket_type_t const& Socket::type()    const noexcept // получить тип сокета
+    SocketType const& Socket::type( ) const noexcept // получить тип сокета
     {
-        return socket_type_;
+        return socketType_;
     }
     //---------------------------------------------------------------------------------------------------------------------------------------------------------------
     // активен ли сокет
-    bool Socket::active() const noexcept
+    bool Socket::isActive( ) const noexcept
     {
-        return (fd_ >= 0);
+        return ( fd_ >= 0 );
     }
     //---------------------------------------------------------------------------------------------------------------------------------------------------------------
     // получить сообщение 
-    ssize_t Socket::recv(int fd, buff_t& buff)       
+    ssize_t Socket::receive( int fd, Buff& buff )       
     {
         ssize_t len = 0;
 
-        if ( (len = ::recv(fd, buff.data(), buff.size(), 0)) && len < 0 )
+        if ( ( len = ::recv( fd, buff.data( ), buff.size( ), 0 ) ) && len < 0 )
         {
-            throw logic_error("Ошибка при получении сообщения: " + string(strerror(errno)));
+            throw logic_error( "Ошибка при получении сообщения: " + string( strerror( errno ) ) );
         }
 
         return len;
     }
 
     // послать сообщение
-    ssize_t Socket::send(int fd, buff_t const& buff)   
+    ssize_t Socket::send( int fd, Buff const& buff )   
     {
         ssize_t len = 0;
 
-        if ( (len = ::send(fd, buff.data(), buff.size(), 0)) && len < 0 )
+        if ( ( len = ::send( fd, buff.data( ), buff.size( ), 0 ) ) && len < 0 )
         {
-            throw logic_error("Ошибка при отправке сообщения: " + string(strerror(errno)));
+            throw logic_error( "Ошибка при отправке сообщения: " + string( strerror( errno ) ) );
         }
 
         return len;
