@@ -21,32 +21,39 @@ using namespace Network;
 
 int main()
 {
-	Socket server("127.0.0.1", 6666, SERVER);
-	server.bind();
-	server.listen(2);
+	Socket server.create( {
+			.domain_ = AF_INET, 
+			.type_ = SOCK_STREAM, 
+			.protocol_ = 0,
+			.socketMode_ = SERVER}, 
+			{ AF_INET, "127.0.0.1", 6666 } );
 	
-	buff_t buff;
+	Buff buff;
 
 	for(;;)
 	{
 		try
 		{
-			int fd = server.accept();
+			auto conn = server.accept( );
 
-			Socket::recv(fd, buff);
+			Socket::receive( conn.first, buff );
+
+			cout << buff.data( ) << '\n';
 
 			buff[0] = 'A';
 			buff[1] = 'B';
 			buff[2] = '\0';
 
-			Socket::send(fd, buff);
-
+			Socket::send( conn.first, buff );
+			::close( conn. first );
+			break;
 		}
 		catch(exception const& e)
 		{
 			cout << e.what() << '\n';
 		}
 	}
+	
 	return 0;
 }
 ```
@@ -64,18 +71,35 @@ using namespace Network;
 
 int main()
 {
-	Socket client("127.0.0.1", 6666, CLIENT);
+	try 
+	{
+		Socket client( {
+		.domain_ = AF_INET, 
+		.type_ = SOCK_STREAM, 
+		.protocol_ = 0,
+		.socketMode_ = CLIENT }, 
+		 {} );
 
-	buff_t buff;
+		Buff buff;
 
-	b[0] = 'B';
-	b[1] = 'A';
-	b[2] = '\0';
+		buff[0] = 'B';
+		buff[1] = 'A';
+		buff[2] = '\0';
 
-	client.connect();
+		client.connect( { AF_INET, "127.0.0.1", 6666 } );
 
-	Socket::send(client.fd(), buff);
-	Socket::recv(client.fd(), buff);
+		Socket::send( client.fd(), buff );
+		Socket::receive( client.fd(), buff );
+
+		cout << buff.data( ) << '\n';
+
+		client.close( );
+
+	}
+	catch( exception const& e )
+	{
+		cout << e.what() << '\n';
+	}
 
 	return 0;
 }
